@@ -8,16 +8,9 @@ func TestHello(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{
-			name:     "with name",
-			input:    "Alice",
-			expected: "Hello, Alice!",
-		},
-		{
-			name:     "empty name defaults to World",
-			input:    "",
-			expected: "Hello, World!",
-		},
+		{"with name", "Alice", "Hello, Alice!"},
+		{"empty name", "", "Hello, World!"},
+		{"with another name", "Bob", "Hello, Bob!"},
 	}
 
 	for _, tt := range tests {
