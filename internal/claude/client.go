@@ -12,13 +12,12 @@ import (
 	"vibe-git/internal/ctxloader"
 )
 
-const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
-
 // Client wraps the Anthropic API
 type Client struct {
-	apiKey string
-	model  string
-	http   *http.Client
+	apiKey  string
+	baseURL string
+	model   string
+	http    *http.Client
 }
 
 // FileChange represents a file modification
@@ -29,11 +28,15 @@ type FileChange struct {
 }
 
 // NewClient creates a new Claude client
-func NewClient(apiKey, model string) *Client {
+func NewClient(apiKey, baseURL, model string) *Client {
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
 	return &Client{
-		apiKey: apiKey,
-		model:  model,
-		http:   &http.Client{},
+		apiKey:  apiKey,
+		baseURL: strings.TrimSuffix(baseURL, "/"),
+		model:   model,
+		http:    &http.Client{},
 	}
 }
 
@@ -61,7 +64,7 @@ func (c *Client) GenerateCode(ctx stdctx.Context, issueTitle, issueBody string, 
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -211,7 +214,7 @@ func (c *Client) ResolveConflict(ctx stdctx.Context, filePath string, conflictCo
 		return "", fmt.Errorf("marshaling request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("creating request: %w", err)
 	}

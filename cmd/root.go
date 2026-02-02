@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"vibe-git/internal/claude"
+	"vibe-git/internal/config"
 	"vibe-git/internal/ctxloader"
 	"vibe-git/internal/git"
 	"vibe-git/internal/github"
@@ -34,6 +35,22 @@ func init() {
 	// Default values from environment
 	githubToken = os.Getenv("GITHUB_TOKEN")
 	claudeAPIKey = os.Getenv("ANTHROPIC_API_KEY")
+
+	// Load defaults from ~/.claude/settings.json if env not set
+	if claudeAPIKey == "" {
+		cfg := config.LoadFromClaudeSettings()
+		claudeAPIKey = cfg.AnthropicAPIKey
+		if cfg.AnthropicBaseURL != "" {
+			os.Setenv("ANTHROPIC_BASE_URL", cfg.AnthropicBaseURL)
+		}
+	}
+
+	// Default poll interval from environment
+	if envPollInterval := os.Getenv("VIBE_GIT_POLL_INTERVAL"); envPollInterval != "" {
+		if d, err := time.ParseDuration(envPollInterval); err == nil {
+			pollInterval = d
+		}
+	}
 }
 
 // Execute runs the CLI
@@ -49,7 +66,7 @@ func Execute() error {
 	// Watch mode flags
 	flag.StringVar(&watchMode, "watch-mode", "webhook", "Watch mode: webhook or poll")
 	flag.IntVar(&webhookPort, "webhook-port", 8080, "Webhook server port")
-	pollIntervalStr := flag.String("poll-interval", "5m", "Poll interval (e.g., 1m, 5m, 1h)")
+	pollIntervalStr := flag.String("poll-interval", pollInterval.String(), "Poll interval (e.g., 1m, 5m, 1h)")
 
 	// Auto-merge flags
 	flag.BoolVar(&autoMerge, "auto-merge", false, "Automatically merge PR after creation")
@@ -128,8 +145,9 @@ Examples:
   vibe-git watch --owner myorg --repo myproject --auto-merge --close-issue
 
 Environment Variables:
-  GITHUB_TOKEN      GitHub personal access token
-  ANTHROPIC_API_KEY Anthropic API key`)
+  GITHUB_TOKEN           GitHub personal access token
+  ANTHROPIC_API_KEY      Anthropic API key
+  VIBE_GIT_POLL_INTERVAL Default poll interval (e.g., 1m, 5m, 1h)`)
 }
 
 func runIssue(issueArg string) error {
@@ -165,7 +183,7 @@ func runIssue(issueArg string) error {
 
 	// Initialize clients
 	githubClient := github.NewClient(githubToken, repoOwner, repoName)
-	claudeClient := claude.NewClient(claudeAPIKey, model)
+	claudeClient := claude.NewClient(claudeAPIKey, os.Getenv("ANTHROPIC_BASE_URL"), model)
 	gitClient := git.NewClient(repoOwner, repoName, githubToken)
 
 	// Process each issue
@@ -294,6 +312,17 @@ func processIssue(ctx context.Context, gh *github.Client, cl *claude.Client, git
 
 	fmt.Printf("✓ Created PR: %s\n", prURL)
 
+	// Close issue if enabled (PR description has "Closes #X" which auto-closes on merge,
+	// but we also support explicit closing)
+	if closeIssue {
+		fmt.Println("  Closing issue...")
+		if err := gh.CloseIssue(ctx, issueNum); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to close issue: %v\n", err)
+		} else {
+			fmt.Println("  ✓ Issue closed")
+		}
+	}
+
 	// Auto-merge if enabled
 	if autoMerge {
 		if waitForChecks {
@@ -347,16 +376,6 @@ func processIssue(ctx context.Context, gh *github.Client, cl *claude.Client, git
 			}
 		}
 		fmt.Println("  ✓ PR merged successfully")
-
-		// Close issue if enabled
-		if closeIssue {
-			fmt.Println("  Closing issue...")
-			if err := gh.CloseIssue(ctx, issueNum); err != nil {
-				fmt.Fprintf(os.Stderr, "  ⚠ Failed to close issue: %v\n", err)
-			} else {
-				fmt.Println("  ✓ Issue closed")
-			}
-		}
 	}
 
 	return nil

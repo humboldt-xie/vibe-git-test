@@ -18,10 +18,10 @@ import (
 )
 
 var (
-	watchMode   string // "webhook" or "poll"
-	webhookPort int
-	pollInterval time.Duration
-	lastChecked time.Time
+	watchMode    string        // "webhook" or "poll"
+	webhookPort  int
+	pollInterval = 5 * time.Minute // default poll interval
+	lastChecked  time.Time
 )
 
 func init() {
@@ -55,7 +55,7 @@ func runWatch() error {
 
 	// Initialize clients
 	githubClient := github.NewClient(githubToken, repoOwner, repoName)
-	claudeClient := claude.NewClient(claudeAPIKey, model)
+	claudeClient := claude.NewClient(claudeAPIKey, os.Getenv("ANTHROPIC_BASE_URL"), model)
 	gitClient := git.NewClient(repoOwner, repoName, githubToken)
 
 	switch watchMode {
