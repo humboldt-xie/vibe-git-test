@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # Claude Gateway - 保护 API 密钥的代理服务
+  claude-gateway:
+    build:
+      context: ./docker/gateway
+      dockerfile: Dockerfile
+    container_name: vibe-git-gateway
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GATEWAY_PORT=8080
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN:-vibe-git-secret-token}
+    volumes:
+      # Claude 配置映射到 Gateway
+      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.anthropic:/root/.anthropic:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - vibe-git-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Claude Worker - 实际运行 Claude Code 的工作容器
+  claude-worker:
+    build:
+      context: ./docker/worker
+      dockerfile: Dockerfile
+    container_name: vibe-git-worker
+    environment:
+      - CLAUDE_API_URL=http://claude-gateway:8080/v1
+      - CLAUDE_API_KEY=local-mode-no-key-needed
+      - WORKER_HTTP_PORT=3000
+      - WORKER_TOKEN=${WORKER_TOKEN:-worker-secret-token}
+    volumes:
+      # 项目代码映射
+      - ${PROJECT_PATH:-..}:/workspace/project:rw
+      # Claude Skills 映射
+      - ${HOME}/.claude/skills:/root/.claude/skills:ro
+      # Claude settings（不包含密钥）
+      - ${HOME}/.claude/settings.json:/root/.claude/settings.json:ro
+      # Git 配置（可选）
+      - ${HOME}/.gitconfig:/root/.gitconfig:ro
+    working_dir: /workspace/project
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - vibe-git-network
+    restart: unless-stopped
+    depends_on:
+      claude-gateway:
+        condition: service_healthy
+    # 保持容器运行
+    command: ["/app/worker-server"]
+
+networks:
+  vibe-git-network:
+    driver: bridge
+    internal: false
