@@ -78,7 +78,7 @@ Vibe-Git is an AI-powered autonomous development tool that automatically process
 - Wait for CI checks to pass before auto-merging
 - Configurable merge timeout (default 10 minutes)
 - Use squash merge strategy
-- Auto-close original issue after merge
+- Auto-close original issue after merge (when --close-issue flag is set)
 
 #### 4.4 Conflict Detection and Retry
 - Detect if PR is mergeable
