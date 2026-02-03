@@ -320,17 +320,6 @@ func processIssue(ctx context.Context, gh *github.Client, cl *claude.Client, git
 
 	fmt.Printf("✓ Created PR: %s\n", prURL)
 
-	// Close issue if enabled (PR description has "Closes #X" which auto-closes on merge,
-	// but we also support explicit closing)
-	if closeIssue {
-		fmt.Println("  Closing issue...")
-		if err := gh.CloseIssue(ctx, issueNum); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ Failed to close issue: %v\n", err)
-		} else {
-			fmt.Println("  ✓ Issue closed")
-		}
-	}
-
 	// Auto-merge if enabled
 	if autoMerge {
 		if waitForChecks {
@@ -384,6 +373,16 @@ func processIssue(ctx context.Context, gh *github.Client, cl *claude.Client, git
 			}
 		}
 		fmt.Println("  ✓ PR merged successfully")
+
+		// Close issue if enabled (only after successful merge)
+		if closeIssue {
+			fmt.Println("  Closing issue...")
+			if err := gh.CloseIssue(ctx, issueNum); err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ Failed to close issue: %v\n", err)
+			} else {
+				fmt.Println("  ✓ Issue closed")
+			}
+		}
 	}
 
 	return nil
