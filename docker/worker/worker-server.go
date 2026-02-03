@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +57,9 @@ func main() {
 	// Project info
 	mux.HandleFunc("/project/info", handleProjectInfo)
 	mux.HandleFunc("/project/tree", handleProjectTree)
+
+	// HTTP request service
+	mux.HandleFunc("/http/request", handleHTTPRequest)
 
 	port := os.Getenv("WORKER_HTTP_PORT")
 	if port == "" {
@@ -362,9 +367,9 @@ func handleFileList(w http.ResponseWriter, r *http.Request) {
 	for _, entry := range entries {
 		info, _ := entry.Info()
 		files = append(files, map[string]interface{}{
-			"name":    entry.Name(),
-			"is_dir":  entry.IsDir(),
-			"size":    info.Size(),
+			"name":     entry.Name(),
+			"is_dir":   entry.IsDir(),
+			"size":     info.Size(),
 			"mod_time": info.ModTime(),
 		})
 	}
@@ -454,6 +459,139 @@ func handleProjectTree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"files": files,
 		"depth": depth,
+	})
+}
+
+// HTTPRequestRequest represents an HTTP request to be made
+type HTTPRequestRequest struct {
+	URL       string            `json:"url"`
+	Method    string            `json:"method"`
+	Headers   map[string]string `json:"headers"`
+	Query     map[string]string `json:"query"`
+	Body      string            `json:"body"`
+	Timeout   int               `json:"timeout"` // seconds
+}
+
+// HTTPRequestResponse represents the response from an HTTP request
+type HTTPRequestResponse struct {
+	StatusCode int               `json:"status_code"`
+	Headers    map[string]string `json:"headers"`
+	Body       string            `json:"body"`
+}
+
+func handleHTTPRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req HTTPRequestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate URL
+	if req.URL == "" {
+		writeError(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	parsedURL, err := url.Parse(req.URL)
+	if err != nil {
+		writeError(w, "invalid url: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Set default method
+	method := req.Method
+	if method == "" {
+		method = "GET"
+	}
+	method = strings.ToUpper(method)
+
+	// Validate method
+	validMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+	isValid := false
+	for _, m := range validMethods {
+		if m == method {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		writeError(w, "invalid method: "+method, http.StatusBadRequest)
+		return
+	}
+
+	// Set timeout
+	timeout := 30 * time.Second
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Second
+	}
+
+	// Add query parameters
+	if len(req.Query) > 0 {
+		q := parsedURL.Query()
+		for k, v := range req.Query {
+			q.Set(k, v)
+		}
+		parsedURL.RawQuery = q.Encode()
+	}
+
+	// Create request
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	var bodyReader io.Reader
+	if req.Body != "" {
+		bodyReader = strings.NewReader(req.Body)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, parsedURL.String(), bodyReader)
+	if err != nil {
+		writeError(w, "creating request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	// Set default Content-Type if body is present and not already set
+	if req.Body != "" && httpReq.Header.Get("Content-Type") == "" {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+
+	// Execute request
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		writeError(w, "executing request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, "reading response body: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response headers
+	headers := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	writeJSON(w, HTTPRequestResponse{
+		StatusCode: resp.StatusCode,
+		Headers:    headers,
+		Body:       string(respBody),
 	})
 }
 

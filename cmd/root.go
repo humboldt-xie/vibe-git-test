@@ -105,6 +105,8 @@ func Execute() error {
 		return runIssue(flag.Arg(1))
 	case "watch":
 		return runWatch()
+	case "request":
+		return runRequest(flag.Args()[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -119,10 +121,12 @@ func printUsage() {
 Usage:
   vibe-git issue <issue-numbers> [flags]
   vibe-git watch [flags]
+  vibe-git request <url> [flags]
 
 Commands:
   issue    Process GitHub issues and create PRs with Claude-generated code
   watch    Automatically watch for new issues and process them
+  request  Make HTTP requests to external services
 
 Flags:`)
 	flag.PrintDefaults()
@@ -143,6 +147,10 @@ Examples:
 
   # Watch with auto-merge (CI must pass first)
   vibe-git watch --owner myorg --repo myproject --auto-merge --close-issue
+
+  # Make HTTP requests
+  vibe-git request https://api.example.com/users
+  vibe-git request https://api.example.com/users -method POST -body '{"name":"John"}'
 
 Environment Variables:
   GITHUB_TOKEN           GitHub personal access token
